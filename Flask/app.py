@@ -3,6 +3,8 @@ import json
 from flask import Flask, render_template,jsonify
 from functools import lru_cache
 import subprocess, requests, re, time
+import sys
+import os
 
 
 @lru_cache()
@@ -21,8 +23,20 @@ def fetch_betmgm(ttl_hash=None):
     return fetch_game_data(sportsbook="betmgm")
 
 def fetch_game_data(sportsbook="fanduel"):
-    cmd = ["python", "main.py", "-xgb", f"-odds={sportsbook}"]
-    stdout = subprocess.check_output(cmd, cwd="../").decode()
+    python_executable = sys.executable
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(current_dir)
+    main_script = os.path.join(project_root, "main.py")
+    
+    cmd = [python_executable, main_script, "-xgb", f"-odds={sportsbook}"]
+    try:
+        stdout = subprocess.check_output(cmd, cwd=project_root, stderr=subprocess.PIPE).decode()
+        print(f"Command output: {stdout}")  # Debug output
+    except subprocess.CalledProcessError as e:
+        print(f"Error executing command: {e.stderr.decode()}")
+        print(f"Command tried to run: {' '.join(cmd)}")  # Debug output
+        print(f"Working directory: {project_root}")  # Debug output
+        return {}
     data_re = re.compile(r'\n(?P<home_team>[\w ]+)(\((?P<home_confidence>[\d+\.]+)%\))? vs (?P<away_team>[\w ]+)(\((?P<away_confidence>[\d+\.]+)%\))?: (?P<ou_pick>OVER|UNDER) (?P<ou_value>[\d+\.]+) (\((?P<ou_confidence>[\d+\.]+)%\))?', re.MULTILINE)
     ev_re = re.compile(r'(?P<team>[\w ]+) EV: (?P<ev>[-\d+\.]+)', re.MULTILINE)
     odds_re = re.compile(r'(?P<away_team>[\w ]+) \((?P<away_team_odds>-?\d+)\) @ (?P<home_team>[\w ]+) \((?P<home_team_odds>-?\d+)\)', re.MULTILINE)
