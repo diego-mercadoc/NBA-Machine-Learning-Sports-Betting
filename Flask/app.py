@@ -28,7 +28,7 @@ def fetch_game_data(sportsbook="fanduel"):
     project_root = os.path.dirname(current_dir)
     main_script = os.path.join(project_root, "main.py")
     
-    cmd = [python_executable, main_script, "-xgb", f"-odds={sportsbook}"]
+    cmd = [python_executable, main_script, "-A", f"-odds={sportsbook}"]
     try:
         stdout = subprocess.check_output(cmd, cwd=project_root, stderr=subprocess.PIPE).decode()
         print(f"Command output: {stdout}")  # Debug output
@@ -37,31 +37,72 @@ def fetch_game_data(sportsbook="fanduel"):
         print(f"Command tried to run: {' '.join(cmd)}")  # Debug output
         print(f"Working directory: {project_root}")  # Debug output
         return {}
+
+    # Split output into XGBoost and Neural Network sections
+    xgb_section = stdout.split("---------------XGBoost Model Predictions---------------")[1].split("-------------------------------------------------------")[0]
+    nn_section = stdout.split("------------Neural Network Model Predictions-----------")[1].split("-------------------------------------------------------")[0]
+    
+    # Regular expressions for parsing predictions
     data_re = re.compile(r'\n(?P<home_team>[\w ]+)(\((?P<home_confidence>[\d+\.]+)%\))? vs (?P<away_team>[\w ]+)(\((?P<away_confidence>[\d+\.]+)%\))?: (?P<ou_pick>OVER|UNDER) (?P<ou_value>[\d+\.]+) (\((?P<ou_confidence>[\d+\.]+)%\))?', re.MULTILINE)
     ev_re = re.compile(r'(?P<team>[\w ]+) EV: (?P<ev>[-\d+\.]+)', re.MULTILINE)
     odds_re = re.compile(r'(?P<away_team>[\w ]+) \((?P<away_team_odds>-?\d+)\) @ (?P<home_team>[\w ]+) \((?P<home_team_odds>-?\d+)\)', re.MULTILINE)
+    
     games = {}
-    for match in data_re.finditer(stdout):
-        game_dict = {'away_team': match.group('away_team').strip(),
-                     'home_team': match.group('home_team').strip(),
-                     'away_confidence': match.group('away_confidence'),
-                     'home_confidence': match.group('home_confidence'),
-                     'ou_pick': match.group('ou_pick'),
-                     'ou_value': match.group('ou_value'),
-                     'ou_confidence': match.group('ou_confidence')}
-        for ev_match in ev_re.finditer(stdout):
+    
+    # Parse XGBoost predictions
+    for match in data_re.finditer(xgb_section):
+        game_dict = {
+            'away_team': match.group('away_team').strip(),
+            'home_team': match.group('home_team').strip(),
+            'xgb': {
+                'away_confidence': match.group('away_confidence'),
+                'home_confidence': match.group('home_confidence'),
+                'ou_pick': match.group('ou_pick'),
+                'ou_value': match.group('ou_value'),
+                'ou_confidence': match.group('ou_confidence')
+            },
+            'nn': {}  # Will be filled in next loop
+        }
+        
+        # Add EVs from XGBoost
+        for ev_match in ev_re.finditer(xgb_section):
             if ev_match.group('team') == game_dict['away_team']:
-                game_dict['away_team_ev'] = ev_match.group('ev')
+                game_dict['xgb']['away_team_ev'] = ev_match.group('ev')
             if ev_match.group('team') == game_dict['home_team']:
-                game_dict['home_team_ev'] = ev_match.group('ev')
+                game_dict['xgb']['home_team_ev'] = ev_match.group('ev')
+                
+        # Add odds
         for odds_match in odds_re.finditer(stdout):
             if odds_match.group('away_team') == game_dict['away_team']:
                 game_dict['away_team_odds'] = odds_match.group('away_team_odds')
             if odds_match.group('home_team') == game_dict['home_team']:
                 game_dict['home_team_odds'] = odds_match.group('home_team_odds')
-
-        print(json.dumps(game_dict, sort_keys=True, indent=4))
+                
         games[f"{game_dict['away_team']}:{game_dict['home_team']}"] = game_dict
+    
+    # Parse Neural Network predictions and add to existing games
+    for match in data_re.finditer(nn_section):
+        home_team = match.group('home_team').strip()
+        away_team = match.group('away_team').strip()
+        game_key = f"{away_team}:{home_team}"
+        
+        if game_key in games:
+            games[game_key]['nn'] = {
+                'away_confidence': match.group('away_confidence'),
+                'home_confidence': match.group('home_confidence'),
+                'ou_pick': match.group('ou_pick'),
+                'ou_value': match.group('ou_value'),
+                'ou_confidence': match.group('ou_confidence')
+            }
+            
+            # Add EVs from Neural Network
+            for ev_match in ev_re.finditer(nn_section):
+                if ev_match.group('team') == away_team:
+                    games[game_key]['nn']['away_team_ev'] = ev_match.group('ev')
+                if ev_match.group('team') == home_team:
+                    games[game_key]['nn']['home_team_ev'] = ev_match.group('ev')
+
+    print(json.dumps(games, sort_keys=True, indent=4))
     return games
 
 
