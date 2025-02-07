@@ -75,49 +75,62 @@
                                             <th scope="col" class="py-1 font-bold text-gray-500 text-left text-sm">ML</th>
                                             <th scope="col" class="py-1 font-bold text-gray-500 text-left text-sm">EV</th>
                                             <th scope="col" class="py-1 font-bold text-gray-500 text-left text-sm">O/U</th>
+                                            <th scope="col" class="py-1 font-bold text-gray-500 text-left text-sm">Model</th>
                                         </tr>
                                     </thead>
                                     <tbody>
+                                        {% for model in ['xgb', 'nn'] %}
+                                        {% set model_data = sbgame[model] %}
                                         <tr class="relative isolate">
                                             <td class="relative isolate whitespace-nowrap py-1 pl-4 pr-3 text-sm font-medium text-white sm:pl-0">
-                                                {% if sbgame.away_team_odds|int > 0 %}+{%endif%}{{ sbgame.away_team_odds }}{% if sbgame.away_confidence %}
+                                                {% if sbgame.away_team_odds|int > 0 %}+{%endif%}{{ sbgame.away_team_odds }}{% if model_data.away_confidence %}
                                                 <span class="ev-confidence">
                                                     <span class="inline-flex mx-0.5 text-gray-600">&bull;</span>
-                                                    <span class="ev-confidence-value">{{ sbgame.away_confidence }}%</span>
+                                                    <span class="ev-confidence-value">{{ model_data.away_confidence }}%</span>
                                                 </span>
                                                 <div class="absolute top-0 inset-x-0 h-0.5 overflow-hidden rounded-full bg-white/10 w-[calc(100%-1rem)]">
-                                                    <div class="h-full rounded-full bg-gradient-to-r from-indigo-500 via-blue-500 to-emerald-500" style="width: {{ sbgame.away_confidence }}%"></div>
+                                                    <div class="h-full rounded-full bg-gradient-to-r from-indigo-500 via-blue-500 to-emerald-500" style="width: {{ model_data.away_confidence }}%"></div>
                                                 </div>
                                                 {% endif %}
                                             </td>
                                             <td class="whitespace-nowrap py-1 pl-4 pr-3 text-sm font-medium text-white sm:pl-0">
-                                                <span class="ev-value">{{ sbgame.away_team_ev }}</span>
+                                                <span class="ev-value">{{ model_data.away_team_ev }}</span>
                                             </td>
-                                            <td class="whitespace-nowrap py-1 pl-4 pr-3 text-sm font-medium text-white sm:pl-0">{% if sbgame.ou_pick == 'OVER' %}O{%else%}U{%endif%}
-                                                {{ sbgame.ou_value }}</td>
+                                            <td class="whitespace-nowrap py-1 pl-4 pr-3 text-sm font-medium text-white sm:pl-0">{% if model_data.ou_pick == 'OVER' %}O{%else%}U{%endif%}
+                                                {{ model_data.ou_value }}</td>
+                                            <td class="whitespace-nowrap py-1 pl-4 pr-3 text-sm font-medium text-white sm:pl-0">
+                                                {% if model == 'xgb' %}XGBoost{% else %}Neural Net{% endif %}
+                                            </td>
                                         </tr>
                                         <tr class="relative isolate">
                                             <td class="relative isolate whitespace-nowrap py-1 pl-4 pr-3 text-sm font-medium text-white sm:pl-0">
-                                                {% if sbgame.home_team_odds|int > 0 %}+{%endif%}{{ sbgame.home_team_odds }}{% if sbgame.home_confidence %}
+                                                {% if sbgame.home_team_odds|int > 0 %}+{%endif%}{{ sbgame.home_team_odds }}{% if model_data.home_confidence %}
                                                     <span class="ev-confidence">
                                                         <span class="inline-flex mx-0.5 text-gray-600">&bull;</span>
-                                                        <span class="ev-confidence-value">{{ sbgame.home_confidence }}%</span>
+                                                        <span class="ev-confidence-value">{{ model_data.home_confidence }}%</span>
                                                     </span>
                                                     <div class="absolute bottom-0 inset-x-0 h-0.5 overflow-hidden rounded-full bg-white/10 w-[calc(100%-1rem)]">
-                                                        <div class="h-full rounded-full bg-gradient-to-r from-indigo-500 via-blue-500 to-emerald-500" style="width: {{ sbgame.home_confidence }}%"></div>
+                                                        <div class="h-full rounded-full bg-gradient-to-r from-indigo-500 via-blue-500 to-emerald-500" style="width: {{ model_data.home_confidence }}%"></div>
                                                     </div>
                                                 {% endif %}
                                             </td>
                                             <td class="whitespace-nowrap py-1 pl-4 pr-3 text-sm font-medium text-white sm:pl-0">
-                                                <span class="ev-value">{{ sbgame.home_team_ev }}</span>
+                                                <span class="ev-value">{{ model_data.home_team_ev }}</span>
                                             </td>
                                             <td class="relative isolate whitespace-nowrap py-1 pl-4 pr-3 text-sm font-medium text-white sm:pl-0">
-                                                <span class="ou-confidence">{{ sbgame.ou_confidence }}%</span>
+                                                <span class="ou-confidence">{{ model_data.ou_confidence }}%</span>
                                                 <div class="absolute bottom-0 inset-x-0 h-0.5 overflow-hidden rounded-full bg-white/10">
-                                                    <div class="h-full rounded-full bg-gradient-to-r from-indigo-500 via-blue-500 to-emerald-500" style="width: {{ sbgame.ou_confidence }}%"></div>
+                                                    <div class="h-full rounded-full bg-gradient-to-r from-indigo-500 via-blue-500 to-emerald-500" style="width: {{ model_data.ou_confidence }}%"></div>
                                                 </div>
                                             </td>
+                                            <td class="whitespace-nowrap py-1 pl-4 pr-3 text-sm font-medium text-white sm:pl-0">
+                                                {% if model == 'xgb' %}XGBoost{% else %}Neural Net{% endif %}
+                                            </td>
                                         </tr>
+                                        {% if not loop.last %}
+                                        <tr><td colspan="4" class="py-2"><hr class="border-gray-700"></td></tr>
+                                        {% endif %}
+                                        {% endfor %}
                                     </tbody>
                                 </table>
                             </td>
