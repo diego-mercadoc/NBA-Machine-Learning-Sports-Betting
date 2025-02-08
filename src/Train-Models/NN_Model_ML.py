@@ -1,40 +1,122 @@
 import sqlite3
 import time
+from datetime import datetime
 
 import numpy as np
 import pandas as pd
 import tensorflow as tf
 from keras.callbacks import TensorBoard, EarlyStopping, ModelCheckpoint
+from tensorflow.keras.layers import Dense, BatchNormalization, Dropout, LeakyReLU, Input
+from tensorflow.keras.regularizers import l2
+from src.Utils.evaluation import evaluate_binary_classification, print_evaluation_report
 
+def time_based_split(df, train_end_date, val_end_date):
+    """Split data based on dates to prevent future data leakage."""
+    train_data = df[pd.to_datetime(df['Date']) <= train_end_date].copy()
+    val_data = df[(pd.to_datetime(df['Date']) > train_end_date) & 
+                  (pd.to_datetime(df['Date']) <= val_end_date)].copy()
+    test_data = df[pd.to_datetime(df['Date']) > val_end_date].copy()
+    
+    print(f"Train set size: {len(train_data)} ({train_data['Date'].min()} to {train_data['Date'].max()})")
+    print(f"Validation set size: {len(val_data)} ({val_data['Date'].min()} to {val_data['Date'].max()})")
+    print(f"Test set size: {len(test_data)} ({test_data['Date'].min()} to {test_data['Date'].max()})")
+    
+    return train_data, val_data, test_data
+
+# Setup logging and callbacks
 current_time = str(time.time())
-
 tensorboard = TensorBoard(log_dir='../../Logs/{}'.format(current_time))
 earlyStopping = EarlyStopping(monitor='val_loss', patience=10, verbose=0, mode='min')
 mcp_save = ModelCheckpoint('../../Models/Trained-Model-ML-' + current_time, save_best_only=True, monitor='val_loss', mode='min')
 
+# Load data
 dataset = "dataset_2012-24_new"
 con = sqlite3.connect("../../Data/dataset.sqlite")
 data = pd.read_sql_query(f"select * from \"{dataset}\"", con, index_col="index")
 con.close()
 
-scores = data['Score']
-margin = data['Home-Team-Win']
-data.drop(['Score', 'Home-Team-Win', 'TEAM_NAME', 'Date', 'TEAM_NAME.1', 'Date.1', 'OU', 'OU-Cover'], axis=1, inplace=True)
+# Split data based on time
+train_end_date = pd.to_datetime('2021-01-01')
+val_end_date = pd.to_datetime('2022-01-01')
+train_data, val_data, test_data = time_based_split(data, train_end_date, val_end_date)
 
-data = data.values
-data = data.astype(float)
+def prepare_data(df):
+    """Prepare data for training/validation/testing."""
+    margin = df['Home-Team-Win']
+    df = df.drop(['Score', 'Home-Team-Win', 'TEAM_NAME', 'Date', 'TEAM_NAME.1', 'Date.1', 'OU', 'OU-Cover'], axis=1)
+    data_values = df.values.astype(float)
+    x = tf.keras.utils.normalize(data_values, axis=1)
+    y = np.asarray(margin)
+    return x, y
 
-x_train = tf.keras.utils.normalize(data, axis=1)
-y_train = np.asarray(margin)
+# Prepare datasets
+x_train, y_train = prepare_data(train_data)
+x_val, y_val = prepare_data(val_data)
+x_test, y_test = prepare_data(test_data)
 
-model = tf.keras.models.Sequential()
-model.add(tf.keras.layers.Flatten())
-model.add(tf.keras.layers.Dense(512, activation=tf.nn.relu6))
-model.add(tf.keras.layers.Dense(256, activation=tf.nn.relu6))
-model.add(tf.keras.layers.Dense(128, activation=tf.nn.relu6))
-model.add(tf.keras.layers.Dense(2, activation=tf.nn.softmax))
+# Define learning rate schedule
+initial_learning_rate = 0.001
+lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
+    initial_learning_rate,
+    decay_steps=1000,
+    decay_rate=0.9,
+    staircase=True
+)
+optimizer = tf.keras.optimizers.Adam(learning_rate=lr_schedule)
 
-model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
-model.fit(x_train, y_train, epochs=50, validation_split=0.1, batch_size=32, callbacks=[tensorboard, earlyStopping, mcp_save])
+# Define the model with modern layers and regularization
+input_shape = x_train.shape[1:]
+model = tf.keras.models.Sequential([
+    Input(shape=input_shape),
+    BatchNormalization(),
+    Dense(512, kernel_regularizer=l2(0.001)),
+    BatchNormalization(),
+    LeakyReLU(alpha=0.1),
+    Dropout(0.3),
+    
+    Dense(256, kernel_regularizer=l2(0.001)),
+    BatchNormalization(),
+    LeakyReLU(alpha=0.1),
+    Dropout(0.2),
+    
+    Dense(128, kernel_regularizer=l2(0.001)),
+    BatchNormalization(),
+    LeakyReLU(alpha=0.1),
+    Dropout(0.1),
+    
+    Dense(2, activation='softmax')
+])
 
+# Calculate class weights to handle imbalance
+class_weights = dict(zip(
+    np.unique(y_train),
+    1 / np.bincount(y_train.astype(int))
+))
+
+model.compile(optimizer=optimizer, 
+             loss='sparse_categorical_crossentropy',
+             metrics=['accuracy'])
+
+# Train with separate validation set
+history = model.fit(
+    x_train, y_train,
+    epochs=50,
+    validation_data=(x_val, y_val),
+    batch_size=32,
+    class_weight=class_weights,
+    callbacks=[tensorboard, earlyStopping, mcp_save]
+)
+
+# Get predictions for evaluation
+y_pred_proba = model.predict(x_test)
+y_pred = np.argmax(y_pred_proba, axis=1)
+
+# Evaluate using our comprehensive metrics
+metrics = evaluate_binary_classification(y_test, y_pred, y_pred_proba)
+print_evaluation_report(metrics, model_type="binary")
+
+# Print training history summary
+print("\nTraining History:")
+print(f"Best validation loss: {min(history.history['val_loss']):.4f}")
+print(f"Best validation accuracy: {max(history.history['val_accuracy']):.4f}")
 print('Done')
